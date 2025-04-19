@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi des Dépenses Sécurisé</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        form {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #expenseList {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 15px;
+        }
+        .expense-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+        }
+        .expense-item:last-child {
+            border-bottom: none;
+        }
+        .total {
+            font-weight: bold;
+            text-align: right;
+            margin-top: 15px;
+            font-size: 18px;
+        }
+        .actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        .actions button {
+            width: 48%;
+        }
+        .category {
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 12px;
+        }
+        #passwordModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            margin: 20% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 400px;
+            border-radius: 8px;
+        }
+        .security-banner {
+            background-color: #2ecc71;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        #backupRestore {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+        #backupRestore button {
+            width: 48%;
+        }
+    </style>
+</head>
+<body>
+    <div class="security-banner">
+        <strong>Données chiffrées</strong> - Protégées par votre mot de passe
+    </div>
+    
+    <h1>Suivi des Dépenses</h1>
+    
+    <form id="expenseForm">
+        <label for="description">Description:</label>
+        <input type="text" id="description" required>
+        
+        <label for="amount">Montant (€):</label>
+        <input type="number" id="amount" step="0.01" min="0.01" required>
+        
+        <label for="category">Catégorie:</label>
+        <select id="category">
+            <option value="Alimentation">Alimentation</option>
+            <option value="Transport">Transport</option>
+            <option value="Logement">Logement</option>
+            <option value="Loisirs">Loisirs</option>
+            <option value="Santé">Santé</option>
+            <option value="Autre">Autre</option>
+        </select>
+        
+        <label for="date">Date:</label>
+        <input type="date" id="date" required>
+        
+        <button type="submit">Ajouter la dépense</button>
+    </form>
+    
+    <div id="expenseList">
+        <h2>Mes dépenses</h2>
+        <div id="expenses"></div>
+        <div class="total">Total: <span id="totalAmount">0.00</span> €</div>
+    </div>
+    
+    <div class="actions">
+        <button id="exportButton">Exporter (CSV)</button>
+        <button id="clearButton">Effacer tout</button>
+    </div>
+    
+    <div id="backupRestore">
+        <button id="backupButton">Sauvegarder (Chiffré)</button>
+        <button id="restoreButton">Restaurer</button>
+    </div>
+    
+    <!-- Modal pour le mot de passe -->
+    <div id="passwordModal">
+        <div class="modal-content">
+            <h3 id="passwordModalTitle">Définir un mot de passe</h3>
+            <p id="passwordModalMessage">Ce mot de passe sera utilisé pour chiffrer vos données. Ne l'oubliez pas!</p>
+            <form id="passwordForm">
+                <label for="password">Mot de passe:</label>
+                <input type="password" id="password" required>
+                <button type="submit" id="passwordSubmit">Confirmer</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Référence au modal de mot de passe
+        const passwordModal = document.getElementById('passwordModal');
+        const passwordForm = document.getElementById('passwordForm');
+        const passwordInput = document.getElementById('password');
+        const passwordModalTitle = document.getElementById('passwordModalTitle');
+        const passwordModalMessage = document.getElementById('passwordModalMessage');
+        
+        // État de l'application
+        let expenses = [];
+        let encryptionKey = null;
+        let actionPending = null;
+        
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Mettre la date d'aujourd'hui par défaut
+            document.getElementById('date').valueAsDate = new Date();
+            
+            // Vérifier s'il y a des données chiffrées
+            const encryptedData = localStorage.getItem('encrypted_expenses');
+            if (encryptedData) {
+                showPasswordModal('Entrer votre mot de passe', 'Veuillez entrer votre mot de passe pour déchiffrer vos données.', async (password) => {
+                    try {
+                        // Générer la clé à partir du mot de passe
+                        encryptionKey = await deriveKeyFromPassword(password);
+                        
+                        // Déchiffrer les données
+                        const decryptedData = await decryptData(encryptedData, encryptionKey);
+                        expenses = JSON.parse(decryptedData);
+                        
+                        // Afficher les dépenses
+                        displayExpenses();
+                    } catch (error) {
+                        alert('Mot de passe incorrect ou données corrompues.');
+                        console.error('Erreur de déchiffrement:', error);
+                        
+                        // Réinitialiser avec un tableau vide
+                        expenses = [];
+                        displayExpenses();
+                    }
+                });
+            } else {
+                // Demander un nouveau mot de passe pour chiffrer les données futures
+                showPasswordModal('Définir un mot de passe', 'Ce mot de passe sera utilisé pour chiffrer vos données. Ne l\'oubliez pas!', async (password) => {
+                    encryptionKey = await deriveKeyFromPassword(password);
+                    expenses = [];
+                    displayExpenses();
+                });
+            }
+        });
+        
+        // Fonction pour afficher le modal de mot de passe
+        function showPasswordModal(title, message, callback) {
+            passwordModalTitle.textContent = title;
+            passwordModalMessage.textContent = message;
+            
+            passwordForm.onsubmit = function(e) {
+                e.preventDefault();
+                const password = passwordInput.value;
+                if (password) {
+                    passwordModal.style.display = 'none';
+                    passwordInput.value = '';
+                    callback(password);
+                }
+            };
+            
+            passwordModal.style.display = 'block';
+        }
+        
+        // Fonction pour dériver une clé de chiffrement à partir d'un mot de passe
+        async function deriveKeyFromPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            
+            // Utiliser un hachage du mot de passe comme sel
+            const salt = await crypto.subtle.digest('SHA-256', data);
+            
+            // Dériver une clé à partir du mot de passe
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                data,
+                { name: 'PBKDF2' },
+                false,
+                ['deriveBits', 'deriveKey']
+            );
+            
+            return crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt,
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        }
+        
+        // Fonction pour chiffrer des données
+        async function encryptData(data, key) {
+            const encoder = new TextEncoder();
+            const encodedData = encoder.encode(data);
+            
+            // Générer un vecteur d'initialisation (IV) aléatoire
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            
+            // Chiffrer les données
+            const encryptedContent = await crypto.subtle.encrypt(
+                {
+                    name: 'AES-GCM',
+                    iv
+                },
+                key,
+                encodedData
+            );
+            
+            // Combiner l'IV et le contenu chiffré
+            const result = new Uint8Array(iv.length + encryptedContent.byteLength);
+            result.set(iv);
+            result.set(new Uint8Array(encryptedContent), iv.length);
+            
+            // Convertir en base64 pour le stockage
+            return btoa(String.fromCharCode.apply(null, result));
+        }
+        
+        // Fonction pour déchiffrer des données
+        async function decryptData(encryptedData, key) {
+            // Convertir depuis base64
+            const binaryString = atob(encryptedData);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // Extraire l'IV et le contenu chiffré
+            const iv = bytes.slice(0, 12);
+            const encryptedContent = bytes.slice(12);
+            
+            // Déchiffrer les données
+            const decryptedContent = await crypto.subtle.decrypt(
+                {
+                    name: 'AES-GCM',
+                    iv
+                },
+                key,
+                encryptedContent
+            );
+            
+            // Convertir le résultat en chaîne
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedContent);
+        }
+        
+        // Sauvegarder les dépenses de manière chiffrée
+        async function saveEncryptedExpenses() {
+            if (!encryptionKey) {
+                showPasswordModal('Définir un mot de passe', 'Ce mot de passe sera utilisé pour chiffrer vos données.', async (password) => {
+                    encryptionKey = await deriveKeyFromPassword(password);
+                    await saveEncryptedExpenses();
+                });
+                return;
+            }
+            
+            try {
+                const dataString = JSON.stringify(expenses);
+                const encryptedData = await encryptData(dataString, encryptionKey);
+                localStorage.setItem('encrypted_expenses', encryptedData);
+            } catch (error) {
+                console.error('Erreur de chiffrement:', error);
+                alert('Une erreur est survenue lors du chiffrement des données.');
+            }
+        }
+        
+        // Gestionnaire d'événements pour le formulaire
+        document.getElementById('expenseForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            if (!encryptionKey) {
+                alert('Veuillez d\'abord définir un mot de passe.');
+                return;
+            }
+            
+            // Récupérer les valeurs du formulaire
+            const description = document.getElementById('description').value;
+            const amount = parseFloat(document.getElementById('amount').value);
+            const category = document.getElementById('category').value;
+            const date = document.getElementById('date').value;
+            
+            // Créer un nouvel objet de dépense
+            const newExpense = {
+                description,
+                amount,
+                category,
+                date,
+                id: Date.now() // ID unique basé sur le timestamp
+            };
+            
+            // Ajouter la dépense au tableau
+            expenses.push(newExpense);
+            
+            // Sauvegarder dans le stockage local chiffré
+            saveEncryptedExpenses();
+            
+            // Mettre à jour l'affichage
+            displayExpenses();
+            
+            // Réinitialiser le formulaire
+            this.reset();
+            document.getElementById('date').valueAsDate = new Date();
+        });
+        
+        // Afficher les dépenses dans la liste
+        function displayExpenses() {
+            const expensesContainer = document.getElementById('expenses');
+            expensesContainer.innerHTML = '';
+            
+            // Trier les dépenses par date (plus récentes d'abord)
+            expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            let total = 0;
+            
+            expenses.forEach(expense => {
+                total += expense.amount;
+                
+                const expenseItem = document.createElement('div');
+                expenseItem.classList.add('expense-item');
+                
+                // Formater la date
+                const formattedDate = new Date(expense.date).toLocaleDateString('fr-FR');
+                
+                expenseItem.innerHTML = `
+                    <div>
+                        <div><strong>${expense.description}</strong> (${formattedDate})</div>
+                        <div class="category">${expense.category}</div>
+                    </div>
+                    <div>
+                        <strong>${expense.amount.toFixed(2)} €</strong>
+                        <button onclick="deleteExpense(${expense.id})" style="width: auto; padding: 2px 5px; margin-left: 5px; background-color: #e74c3c;">×</button>
+                    </div>
+                `;
+                
+                expensesContainer.appendChild(expenseItem);
+            });
+            
+            // Mettre à jour le total
+            document.getElementById('totalAmount').textContent = total.toFixed(2);
+        }
+        
+        // Supprimer une dépense
+        function deleteExpense(id) {
+            expenses = expenses.filter(expense => expense.id !== id);
+            saveEncryptedExpenses();
+            displayExpenses();
+        }
+        
+        // Exporter les dépenses en CSV
+        document.getElementById('exportButton').addEventListener('click', function() {
+            if (expenses.length === 0) {
+                alert('Aucune dépense à exporter.');
+                return;
+            }
+            
+            let csvContent = 'data:text/csv;charset=utf-8,Date,Description,Montant,Catégorie\n';
+            
+            expenses.forEach(expense => {
+                csvContent += `${expense.date},${expense.description},${expense.amount},${expense.category}\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', 'mes_depenses.csv');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+        
+        // Effacer toutes les dépenses
+        document.getElementById('clearButton').addEventListener('click', function() {
+            if (confirm('Êtes-vous sûr de vouloir effacer toutes vos dépenses ?')) {
+                expenses = [];
+                saveEncryptedExpenses();
+                displayExpenses();
+            }
+        });
+        
+        // Sauvegarder un fichier chiffré pour la sauvegarde
+        document.getElementById('backupButton').addEventListener('click', async function() {
+            if (expenses.length === 0) {
+                alert('Aucune dépense à sauvegarder.');
+                return;
+            }
+            
+            if (!encryptionKey) {
+                alert('Veuillez d\'abord définir un mot de passe.');
+                return;
+            }
+
+            try {
+                const dataString = JSON.stringify(expenses);
+                const encryptedData = await encryptData(dataString, encryptionKey);
+                
+                // Créer un objet Blob avec les données chiffrées
+                const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                
+                // Créer un lien de téléchargement
+                const link = document.createElement('a');
+                link.href = url;
+                const date = new Date().toISOString().split('T')[0];
+                link.download = `mes_depenses_${date}.enc`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                alert('Sauvegarde créée avec succès. Gardez ce fichier en lieu sûr.');
+            } catch (error) {
+                console.error('Erreur lors de la sauvegarde:', error);
+                alert('Une erreur est survenue lors de la création de la sauvegarde.');
+            }
+        });
+        
+        // Restaurer à partir d'un fichier de sauvegarde
+        document.getElementById('restoreButton').addEventListener('click', function() {
+            // Créer un élément input pour sélectionner le fichier
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.enc';
+            
+            fileInput.onchange = function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const encryptedData = e.target.result;
+                    
+                    // Demander le mot de passe pour déchiffrer
+                    showPasswordModal('Entrer votre mot de passe', 'Veuillez entrer le mot de passe utilisé pour chiffrer cette sauvegarde.', async (password) => {
+                        try {
+                            // Générer la clé à partir du mot de passe
+                            const key = await deriveKeyFromPassword(password);
+                            
+                            // Déchiffrer les données
+                            const decryptedData = await decryptData(encryptedData, key);
+                            const restoredExpenses = JSON.parse(decryptedData);
+                            
+                            // Demander confirmation
+                            if (confirm(`Restaurer ${restoredExpenses.length} dépenses? Les données actuelles seront remplacées.`)) {
+                                expenses = restoredExpenses;
+                                encryptionKey = key;
+                                saveEncryptedExpenses();
+                                displayExpenses();
+                                alert('Restauration réussie!');
+                            }
+                        } catch (error) {
+                            console.error('Erreur de restauration:', error);
+                            alert('Mot de passe incorrect ou fichier corrompu.');
+                        }
+                    });
+                };
+                reader.readAsText(file);
+            };
+            
+            fileInput.click();
+        });
+    </script>
+    
+    <!-- Manifeste pour PWA -->
+    <script>
+        // Vérifier si le navigateur prend en charge les service workers
+        if ('serviceWorker' in navigator) {
+            // Enregistrer le service worker
+            navigator.serviceWorker.register('sw.js')
+            .then(function(registration) {
+                console.log('Service Worker enregistré avec succès:', registration);
+            })
+            .catch(function(error) {
+                console.log('Échec de l\'enregistrement du Service Worker:', error);
+            });
+        }
+    </script>
+</body>
+</html>
